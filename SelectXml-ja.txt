@@ -1,0 +1,54 @@
+スクリプトを書いていると、たびたびXMLのファイルを作成したり、あるいは変更したりする機会があります。例えば、XML形式の設定ファイルを自動生成したり、その設定ファイルを更新するようなケースです。
+
+PowerShellで標準で用意されているXMLのサポートは、DOMをベースにした XmlDocument クラスを用いるものです。当然ながら、この仕組みを用いてスクリプトを書くことに全然問題はありません。
+
+しかし、シンプルかつよりスマートな API セットである XDocument が使える現在、PowerShell ベースとはいえ今更 DOM ベースの XmlDocument を使うのは、少し心理的に抵抗がある人もいるでしょう（例えば筆者）。XmlDocument と XDocument で、機能的に大きな違いはないのですが、XML 標準の DOM という考え方には幾分クセがあり、XmlDocument のその独特の使用方法に馴染むまで少しムズムズする可能性があります（ちなみに私は10年来ずっとムズムズしたままです）。
+
+そういうわけで、XDocument を手軽に扱うための PowerShell モジュールを作ってみました、というのが今回のお題です。基本的にはコンストラクターをラップしたコマンドレットが中心で、以下のような形で使うことを想定しています。
+
+$doc = New-XDocument ( `
+  New-XElement users `
+    (New-XElement user (New-XAttribute name ichiro)) `
+    (New-XElement user (New-XAttribute name andrej)) `
+)
+
+これは新規に以下のような XML 文書のオブジェクトである XDocument を生成しています。
+
+<?xml version='1.0'? encoding='utf-8'>
+<users>
+  <user name='ichiro' />
+  <user name='andrej' />
+</users>
+
+さすがにこれだとちょっとタイプ量が半端ないので、aliasも仕込んでおきましした。これで以下のようにスッキリと書けます。
+
+$doc = xd (xe users (xe user (xa name ichiro)) (xe user (xa name andrej)))
+
+ユーザーを追加してみましょう。XPath を使って users のノードを取り出し、そのノードに新しい user ノードを子供として追加します。
+
+$users = $doc | Select-XNode users
+$users.Add((ne user (na name taro)))
+
+Select-XNode は [System.Xml.Linq.Extensions]::XPathEvaluate のラッパーです。ただそのままラップすると芸が無いので、PowerShell っぽく引数をパイプラインから取れるように細工しています。
+
+ファイルへの保存およびファイルからの読み出しも用意してあります。
+
+  $doc | Set-XDocument .\users.xml
+  $doc = Get=XDocument .\users.xml
+
+さて、生成したり、変更したり、といった観点で XDocument は非常に使い勝手がいいのですが、XmlDocument の使い勝手のほうが遥かによい場合があります。これは PowerShell 限定の話なのですが、PSObject として XmlDocument がラップされる際、属性や子供の要素をプロパティとしてアクセスするためのプロパティとして追加されるのです。例えば、さきほどのユーザーリストの XML 文書、ユーザーの名前を取り出したい場合、XmlDocument だと以下のように直感的にかけます。
+
+  [xml] $doc = Get-Content .\users.xml
+  $names = @($doc.users.user | Foreach { $_.name })
+
+最初、これと同じことを XDocument で出来るといいかなぁ、と思い、生成した XDocument / XElement に NoteProperty を後からくっつける……ようなことをちょっと考えていたんですが、ちょいと面倒、というか不毛な感じがしてきたのでやめました。代わりに、もっと簡単な方法ですが、XmlDocument と XDocument で相互変換できるコマンドレットを用意してみました。利用シーンに応じて適切に使い分けるといいでしょう。
+
+$doc = xd (xe users (xa version 1) (xe user (xa name ichiro)) (xe user (xa name andrej))) |
+  ConvertFrom-XDocument
+
+$names = $doc.users.user | Foreach {$_.name }
+
+逆に、XmlDocument を取り扱っているときに、更新の場合だけ XDocument に変更するのもありです。
+
+と、いった感じのモジュールをここに置いておきました。よろしかったらどーぞ :D
+明日は @xxxx さんの番です。お楽しみに！
